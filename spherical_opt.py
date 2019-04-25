@@ -119,9 +119,9 @@ def centroid(cart_coords, sph_coord):
     '''
     centroid_sph = np.zeros_like(sph_coord[0])
     for dim in ['x', 'y', 'z']:
-        centroid_sph[dim] = np.average(sph_coord[dim])
+        centroid_sph[dim] = np.sum(sph_coord[dim])/sph_coord.shape[0]
     fill_from_cart(centroid_sph)
-    centroid_cart = np.average(cart_coords, axis=0)
+    centroid_cart = np.sum(cart_coords, axis=0)/cart_coords.shape[0]
     
     return centroid_cart, centroid_sph
 
@@ -151,14 +151,25 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
         break condition, if std(p_i) for all current points p_i droppes below xstd, minimization terminates,
         for negative values, coordinate will be ignored
     '''
+    if not method in ['Nelder-Mead', 'CRS2']:
+        raise ValueError('Unknown method %s, choices are Nelder-Mead or CRS2'%method)
+
     
     #REPORT_AFTER = 100
     
     n_points, n_dim = initial_points.shape
     n_spher = len(spherical_indices)
     n_cart = n_dim - 2 * n_spher
+
+    if method == 'Nelder-Mead':
+        assert n_points == n_dim + 1, 'Nelder-Mead will need n+1 points for an n-dimensional function'
+
+    if method == 'CRS2':
+        assert n_points > n_dim, 'CRS will need more points than dimesnsions'
+        if n_points < 10 * n_dim:
+            print('WARNING: number of points is very low')
     
-    all_spherical_indices = [idx for sp in spherical_indices for udx in sp]
+    all_spherical_indices = [idx for sp in spherical_indices for idx in sp]
     all_azimuth_indices = [sp[0] for sp in spherical_indices]
     all_zenith_indices = [sp[1] for sp in spherical_indices]
     all_cartesian_indices = list(set(range(n_dim)) ^ set(all_spherical_indices))
@@ -169,6 +180,7 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
         fvals[i] = func(initial_points[i])
     
     s_cart = initial_points[:, all_cartesian_indices]
+    #print(s_cart)
     s_spher = np.zeros(shape=(n_points, n_spher), dtype=SPHER_T)
     s_spher['az'] = initial_points[:, all_azimuth_indices]
     s_spher['zen'] = initial_points[:, all_zenith_indices]
@@ -358,8 +370,6 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
                     fvals[idx] = func(new_p)
                     n_calls += 1
 
-        else:
-            raise ValueError('Unknown method %s'%method)
 
     return stopping_flag, x[best_idx]
 
