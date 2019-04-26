@@ -363,11 +363,11 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
 
             # --- STEP 4: Shrink ---
                 
-            for idx in range(npoints):
+            for idx in range(n_points):
                 if not idx == best_idx:
                     s_cart[idx], s_spher[idx] = centroid(s_cart[[best_idx, idx]], s_spher[[best_idx, idx]])
-                    x[idx] = create_x(new_p_cart, new_p_spher)
-                    fvals[idx] = func(new_p)
+                    x[idx] = create_x(s_cart[idx], s_spher[idx])
+                    fvals[idx] = func(x[idx])
                     n_calls += 1
 
 
