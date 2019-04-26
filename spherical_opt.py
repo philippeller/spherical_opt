@@ -125,7 +125,14 @@ def centroid(cart_coords, sph_coord):
     
     return centroid_cart, centroid_sph
 
-def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=10000, max_calls=None, max_noimprovement=1000, fstd=1e-1, xstd=None):
+def angular_dist(p1, p2): # theta1, theta2, phi1, phi2):
+    '''
+    calculate the angular distance between two directions in spherical coords
+    '''
+    return np.arccos(p1['coszen'] * p2['coszen'] + p1['sinzen'] * p2['sinzen'] * np.cos(p1['az'] - p2['az']))
+
+
+def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=10000, max_calls=None, max_noimprovement=1000, fstd=1e-1, cstd=None, sstd=None, verbose=False):
     '''spherical minimization
     Parameters:
     -----------
@@ -147,9 +154,13 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
         break condition, maximum iterations without improvement
     fstd : float
         break condition, if std(f(p_i)) for all current points p_i droppes below fstd, minimization terminates
-    xstd : array
-        break condition, if std(p_i) for all current points p_i droppes below xstd, minimization terminates,
+    cstd : array
+        break condition, if std(p_i) for all non-spherical coordinates current points p_i droppes below cstd, minimization terminates,
         for negative values, coordinate will be ignored
+    fstd : array
+        break condition, if std(p_i) for all spherical coordinates current points p_i droppes below sstd, minimization terminates,
+        for negative values, coordinate will be ignored
+    verbose : bool
     '''
     if not method in ['Nelder-Mead', 'CRS2']:
         raise ValueError('Unknown method %s, choices are Nelder-Mead or CRS2'%method)
@@ -160,6 +171,12 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
     n_points, n_dim = initial_points.shape
     n_spher = len(spherical_indices)
     n_cart = n_dim - 2 * n_spher
+
+    if cstd is not None:
+        assert len(cstd) == n_cart, 'Std-dev stopping values for cartesian coordinates must have length equal to number of cartesian coordinates'
+
+    if sstd is not None:
+        assert len(sstd) == n_spher, 'Std-dev stopping values for spherical coordinates must have length equal to number of spherical coordinate pairs'
 
     if method == 'Nelder-Mead':
         assert n_points == n_dim + 1, 'Nelder-Mead will need n+1 points for an n-dimensional function'
@@ -204,7 +221,7 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
     stopping_flag = -1
 
     # minimizer loop
-    for iter_num in xrange(max_iter):
+    for iter_num in xrange(max_iter+1):
         #print(iter_num)
 
         if max_calls and n_calls >= max_calls:
@@ -222,10 +239,22 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
             break
 
         # break condition 3
-        if xstd is not None:
+        if cstd is not None or sstd is not None:
             # ToDo: stddev in spherical coords.
-            xdevs = np.std(x, axis=1)
-            if np.all(xdevs[xstd<0] < xstd[xstd<0]):
+	    if cstd is not None:
+		cdevs = np.std(s_cart, axis=1)
+		converged = np.all(cdevs[cstd>0] < cstd[cstd>0])
+            else:
+                converged = True
+
+            if sstd is not None:
+                for std in sstd:
+                    if std > 0:
+                        _, cent = centroid(np.empty([0,0]), s_spher)
+                        deltas = angular_dist(s_spher, cent)
+                        dev = np.sqrt(np.sum(np.square(deltas))/(n_points - 1))
+                        converged = converged and dev < std
+	    if converged:
                 stopping_flag = 3
                 break
            
@@ -304,6 +333,7 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
         elif method == 'Nelder-Mead':
             
             # --- STEP 1: Reflection ---
+            if verbose: print('reflect')
             # centroid of choice except N+1, but including best
             centroid_indices = sorted_idx[:-1]
             centroid_cart, centroid_spher = centroid(s_cart[centroid_indices], s_spher[centroid_indices])
@@ -327,6 +357,7 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
             # --- STEP 2: Expand ---
                 
             if reflected_fval < fvals[best_idx]:
+                if verbose: print('expand')
 
                 # essentially reflect again
                 expanded_p_spher = np.zeros(n_spher, dtype=SPHER_T)
@@ -350,18 +381,33 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
 
             # --- STEP 3: Contract ---
                 
-            contracted_p_cart, contracted_p_spher = centroid(np.vstack([centroid_cart, s_cart[worst_idx]]), np.vstack([centroid_spher, s_spher[worst_idx]]))
-            contracted_p = create_x(contracted_p_cart, contracted_p_spher)
-            contracted_fval = func(contracted_p)
-            n_calls += 1
-            if contracted_fval < fvals[worst_idx]:
-                s_cart[worst_idx] = contracted_p_cart
-                s_spher[worst_idx] = contracted_p_spher
-                x[worst_idx] = contracted_p
-                fvals[worst_idx] = contracted_fval
-                continue
+            if reflected_fval < fvals[worst_idx]:
+                if verbose: print('contract (outside)')
+                contracted_p_cart, contracted_p_spher = centroid(np.vstack([centroid_cart, reflected_p_cart]), np.vstack([centroid_spher, reflected_p_spher]))
+                contracted_p = create_x(contracted_p_cart, contracted_p_spher)
+                contracted_fval = func(contracted_p)
+                n_calls += 1
+                if contracted_fval < reflected_fval:
+                    s_cart[worst_idx] = contracted_p_cart
+                    s_spher[worst_idx] = contracted_p_spher
+                    x[worst_idx] = contracted_p
+                    fvals[worst_idx] = contracted_fval
+                    continue
+            else:
+                if verbose: print('contract (inside)')
+                contracted_p_cart, contracted_p_spher = centroid(np.vstack([centroid_cart, s_cart[worst_idx]]), np.vstack([centroid_spher, s_spher[worst_idx]]))
+                contracted_p = create_x(contracted_p_cart, contracted_p_spher)
+                contracted_fval = func(contracted_p)
+                n_calls += 1
+                if contracted_fval < fvals[worst_idx]:
+                    s_cart[worst_idx] = contracted_p_cart
+                    s_spher[worst_idx] = contracted_p_spher
+                    x[worst_idx] = contracted_p
+                    fvals[worst_idx] = contracted_fval
+                    continue
 
             # --- STEP 4: Shrink ---
+            if verbose: print('shrink')
                 
             for idx in range(n_points):
                 if not idx == best_idx:
@@ -370,7 +416,16 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
                     fvals[idx] = func(x[idx])
                     n_calls += 1
 
+    opt_meta = {}
+    opt_meta['stopping_flag'] = stopping_flag
+    opt_meta['n_calls'] = n_calls
+    opt_meta['nit'] = iter_num
+    opt_meta['method'] = method
+    opt_meta['fun'] = fvals[best_idx]
+    opt_meta['x'] = x[best_idx]
+    opt_meta['final_simplex'] = [x, fvals]
+    opt_meta['success'] = stopping_flag > 0
 
-    return stopping_flag, x[best_idx]
+    return opt_meta
 
 
