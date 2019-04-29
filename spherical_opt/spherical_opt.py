@@ -203,8 +203,10 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
 	    meta_dict['num_mutation_successes'] = 0	
 	    meta_dict['num_failures'] = 0	
     if meta:
-        meta_dict['cstd_met_at_iter'] = np.full(-1, len(cstd))
-        meta_dict['sstd_met_at_iter'] = np.full(-1, len(sstd))
+        if cstd is not None:
+            meta_dict['cstd_met_at_iter'] = np.full(len(cstd), -1)
+        if sstd is not None:
+            meta_dict['sstd_met_at_iter'] = np.full(len(sstd), -1)
 
     
     all_spherical_indices = [idx for sp in spherical_indices for idx in sp]
@@ -263,10 +265,10 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
         if cstd is not None or sstd is not None:
             # ToDo: stddev in spherical coords.
 	    if cstd is not None:
-		cdevs = np.std(s_cart, axis=1)
+                cdevs = np.std(s_cart, axis=0)
 		converged = cdevs[cstd>0] < cstd[cstd>0]
                 if meta:
-                    mask = np.logical_and(meta_dict['cstd_met_at_iter'] < 0, met)
+                    mask = np.logical_and(meta_dict['cstd_met_at_iter'] < 0, converged[0])
                     meta_dict['cstd_met_at_iter'][mask] = iter_num
 		converged = np.all(converged)
             else:
@@ -455,8 +457,10 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
     if meta:
         meta_dict['no_improvement_counter'] = no_improvement_counter
         meta_dict['fstd'] = np.std(fvals)
-        meta_dict['cstd'] = cdevs
-        meta_dict['sstd'] = np.array(sdevs)
+        if cstd is not None:
+            meta_dict['cstd'] = cdevs
+        if sstd is not None:
+            meta_dict['sstd'] = np.array(sdevs)
 	
 
     opt_meta = {}
