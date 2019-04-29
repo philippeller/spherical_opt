@@ -132,7 +132,7 @@ def angular_dist(p1, p2): # theta1, theta2, phi1, phi2):
     return np.arccos(p1['coszen'] * p2['coszen'] + p1['sinzen'] * p2['sinzen'] * np.cos(p1['az'] - p2['az']))
 
 
-def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=10000, max_calls=None, max_noimprovement=1000, fstd=1e-1, cstd=None, sstd=None, verbose=False):
+def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=10000, max_calls=None, max_noimprovement=1000, fstd=1e-1, cstd=None, sstd=None, verbose=False, meta=False):
     '''spherical minimization
     Parameters:
     -----------
@@ -161,6 +161,17 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
         break condition, if std(p_i) for all spherical coordinates current points p_i droppes below sstd, minimization terminates,
         for negative values, coordinate will be ignored
     verbose : bool
+
+    Notes
+    -----
+    CRS2 [1] is a variant of controlled random search (CRS, a global
+    optimizer) with faster convergence than CRS.
+
+    Refrences
+    ---------
+    .. [1] P. Kaelo, M.M. Ali, "Some variants of the controlled random
+       search algorithm for global optimization," J. Optim. Theory Appl.,
+       130 (2) (2006), pp. 253-264.
     '''
     if not method in ['Nelder-Mead', 'CRS2']:
         raise ValueError('Unknown method %s, choices are Nelder-Mead or CRS2'%method)
@@ -185,6 +196,16 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
         assert n_points > n_dim, 'CRS will need more points than dimesnsions'
         if n_points < 10 * n_dim:
             print('WARNING: number of points is very low')
+
+	if meta:
+	    meta_dict = {}
+	    meta_dict['num_simplex_successes'] = 0	
+	    meta_dict['num_mutation_successes'] = 0	
+	    meta_dict['num_failures'] = 0	
+    if meta:
+        meta_dict['cstd_met_at_iter'] = np.full(-1, len(cstd))
+        meta_dict['sstd_met_at_iter'] = np.full(-1, len(sstd))
+
     
     all_spherical_indices = [idx for sp in spherical_indices for idx in sp]
     all_azimuth_indices = [sp[0] for sp in spherical_indices]
@@ -243,17 +264,28 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
             # ToDo: stddev in spherical coords.
 	    if cstd is not None:
 		cdevs = np.std(s_cart, axis=1)
-		converged = np.all(cdevs[cstd>0] < cstd[cstd>0])
+		converged = cdevs[cstd>0] < cstd[cstd>0]
+                if meta:
+                    mask = np.logical_and(meta_dict['cstd_met_at_iter'] < 0, met)
+                    meta_dict['cstd_met_at_iter'][mask] = iter_num
+		converged = np.all(converged)
             else:
                 converged = True
 
             if sstd is not None:
-                for std in sstd:
+                sdevs = []
+                for i, std in enumerate(sstd):
                     if std > 0:
                         _, cent = centroid(np.empty([0,0]), s_spher)
                         deltas = angular_dist(s_spher, cent)
                         dev = np.sqrt(np.sum(np.square(deltas))/(n_points - 1))
+                        sdevs.append(dev)
                         converged = converged and dev < std
+                        if meta:
+                            if meta_dict['sstd_met_at_iter'] < 0 and dev < std:
+                                meta_dict['sstd_met_at_iter'] = iter_num
+                    else:
+                        sdevs = append(-1)
 	    if converged:
                 stopping_flag = 3
                 break
@@ -297,6 +329,7 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
                 s_spher[worst_idx] = reflected_p_spher
                 x[worst_idx] = reflected_p
                 fvals[worst_idx] = new_fval
+        	meta_dict['num_simplex_successes'] += 1
                 continue
  
             # --- STEP 2: Mutation ---
@@ -325,9 +358,11 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
                 s_spher[worst_idx] = mutated_p_spher
                 x[worst_idx] = mutated_p
                 fvals[worst_idx] = new_fval
+	    	meta_dict['num_mutation_successes'] += 1
                 continue
 
             # if we get here no method was successful in replacing worst point -> start over
+	    meta_dict['num_failures'] += 1	
 
             
         elif method == 'Nelder-Mead':
@@ -416,6 +451,14 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
                     fvals[idx] = func(x[idx])
                     n_calls += 1
 
+
+    if meta:
+        meta_dict['no_improvement_counter'] = no_improvement_counter
+        meta_dict['fstd'] = np.std(fvals)
+        meta_dict['cstd'] = cdevs
+        meta_dict['sstd'] = np.array(sdevs)
+	
+
     opt_meta = {}
     opt_meta['stopping_flag'] = stopping_flag
     opt_meta['n_calls'] = n_calls
@@ -425,6 +468,8 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
     opt_meta['x'] = x[best_idx]
     opt_meta['final_simplex'] = [x, fvals]
     opt_meta['success'] = stopping_flag > 0
+    if meta:
+        opt_meta['meta'] = meta_dict
 
     return opt_meta
 
