@@ -244,7 +244,7 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
     stopping_flag = -1
 
     # minimizer loop
-    for iter_num in xrange(max_iter+1):
+    for iter_num in range(max_iter+1):
         #print(iter_num)
 
         if max_calls and n_calls >= max_calls:
@@ -287,7 +287,7 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
                             if meta_dict['sstd_met_at_iter'] < 0 and dev < std:
                                 meta_dict['sstd_met_at_iter'] = iter_num
                     else:
-                        sdevs = append(-1)
+                        sdevs.append(-1)
             if converged:
                 stopping_flag = 3
                 break
