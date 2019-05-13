@@ -185,9 +185,11 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
 
     if cstd is not None:
         assert len(cstd) == n_cart, 'Std-dev stopping values for cartesian coordinates must have length equal to number of cartesian coordinates'
+        cstd = np.array(cstd)
 
     if sstd is not None:
         assert len(sstd) == n_spher, 'Std-dev stopping values for spherical coordinates must have length equal to number of spherical coordinate pairs'
+        sstd = np.array(sstd)
 
     if method == 'Nelder-Mead':
         assert n_points == n_dim + 1, 'Nelder-Mead will need n+1 points for an n-dimensional function'
