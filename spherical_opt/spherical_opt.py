@@ -197,11 +197,11 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
         if n_points < 10 * n_dim:
             print('WARNING: number of points is very low')
 
-	if meta:
-	    meta_dict = {}
-	    meta_dict['num_simplex_successes'] = 0	
-	    meta_dict['num_mutation_successes'] = 0	
-	    meta_dict['num_failures'] = 0	
+        if meta:
+            meta_dict = {}
+            meta_dict['num_simplex_successes'] = 0      
+            meta_dict['num_mutation_successes'] = 0     
+            meta_dict['num_failures'] = 0       
     if meta:
         if cstd is not None:
             meta_dict['cstd_met_at_iter'] = np.full(len(cstd), -1)
@@ -264,13 +264,13 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
         # break condition 3
         if cstd is not None or sstd is not None:
             # ToDo: stddev in spherical coords.
-	    if cstd is not None:
+            if cstd is not None:
                 cdevs = np.std(s_cart, axis=0)
-		converged = cdevs[cstd>0] < cstd[cstd>0]
+                converged = cdevs[cstd>0] < cstd[cstd>0]
                 if meta:
                     mask = np.logical_and(meta_dict['cstd_met_at_iter'] < 0, converged[0])
                     meta_dict['cstd_met_at_iter'][mask] = iter_num
-		converged = np.all(converged)
+                converged = np.all(converged)
             else:
                 converged = True
 
@@ -288,7 +288,7 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
                                 meta_dict['sstd_met_at_iter'] = iter_num
                     else:
                         sdevs = append(-1)
-	    if converged:
+            if converged:
                 stopping_flag = 3
                 break
            
@@ -331,7 +331,7 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
                 s_spher[worst_idx] = reflected_p_spher
                 x[worst_idx] = reflected_p
                 fvals[worst_idx] = new_fval
-        	meta_dict['num_simplex_successes'] += 1
+                meta_dict['num_simplex_successes'] += 1
                 continue
  
             # --- STEP 2: Mutation ---
@@ -360,11 +360,11 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
                 s_spher[worst_idx] = mutated_p_spher
                 x[worst_idx] = mutated_p
                 fvals[worst_idx] = new_fval
-	    	meta_dict['num_mutation_successes'] += 1
+                meta_dict['num_mutation_successes'] += 1
                 continue
 
             # if we get here no method was successful in replacing worst point -> start over
-	    meta_dict['num_failures'] += 1	
+            meta_dict['num_failures'] += 1      
 
             
         elif method == 'Nelder-Mead':
@@ -461,7 +461,7 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
             meta_dict['cstd'] = cdevs
         if sstd is not None:
             meta_dict['sstd'] = np.array(sdevs)
-	
+        
 
     opt_meta = {}
     opt_meta['stopping_flag'] = stopping_flag
