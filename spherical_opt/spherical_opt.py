@@ -183,8 +183,8 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
     n_spher = len(spherical_indices)
     n_cart = n_dim - 2 * n_spher
 
-    sdevs = np.zeros(n_spher)
-    cdevs = np.zeros(n_cart)
+    sdevs = - np.ones(n_spher)
+    cdevs = - np.ones(n_cart)
 
     if cstd is not None:
         assert len(cstd) == n_cart, 'Std-dev stopping values for cartesian coordinates must have length equal to number of cartesian coordinates'
@@ -273,26 +273,25 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
                 cdevs = np.std(s_cart, axis=0)
                 converged = cdevs[cstd>0] < cstd[cstd>0]
                 if meta:
-                    mask = np.logical_and(meta_dict['cstd_met_at_iter'] < 0, converged[0])
+                    mask = np.logical_and(meta_dict['cstd_met_at_iter'] < 0, converged)
                     meta_dict['cstd_met_at_iter'][mask] = iter_num
                 converged = np.all(converged)
             else:
                 converged = True
 
             if sstd is not None:
-                sdevs = []
                 for i, std in enumerate(sstd):
                     if std > 0:
                         _, cent = centroid(np.empty([0,0]), s_spher)
                         deltas = angular_dist(s_spher, cent)
                         dev = np.sqrt(np.sum(np.square(deltas))/(n_points - 1))
-                        sdevs.append(dev)
+                        sdevs[i] = dev
                         converged = converged and dev < std
                         if meta:
                             if meta_dict['sstd_met_at_iter'] < 0 and dev < std:
                                 meta_dict['sstd_met_at_iter'] = iter_num
                     else:
-                        sdevs.append(-1)
+                        sdevs[i] = -1
             if converged:
                 stopping_flag = 3
                 break
