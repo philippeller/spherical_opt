@@ -183,6 +183,9 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
     n_spher = len(spherical_indices)
     n_cart = n_dim - 2 * n_spher
 
+    sdevs = np.zeros(n_spher)
+    cdevs = np.zeros(n_cart)
+
     if cstd is not None:
         assert len(cstd) == n_cart, 'Std-dev stopping values for cartesian coordinates must have length equal to number of cartesian coordinates'
         cstd = np.array(cstd)
