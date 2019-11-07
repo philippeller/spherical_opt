@@ -132,7 +132,7 @@ def angular_dist(p1, p2): # theta1, theta2, phi1, phi2):
     return np.arccos(p1['coszen'] * p2['coszen'] + p1['sinzen'] * p2['sinzen'] * np.cos(p1['az'] - p2['az']))
 
 
-def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=10000, max_calls=None, max_noimprovement=1000, fstd=1e-1, cstd=None, sstd=None, verbose=False, meta=False):
+def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=10000, max_calls=None, max_noimprovement=1000, fstd=1e-1, cstd=None, sstd=None, verbose=False, meta=False, rand=None):
     '''spherical minimization
     Parameters:
     -----------
@@ -161,6 +161,7 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
         break condition, if std(p_i) for all spherical coordinates current points p_i droppes below sstd, minimization terminates,
         for negative values, coordinate will be ignored
     verbose : bool
+    rand : numpy random state (optional)
 
     Notes
     -----
@@ -176,6 +177,8 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
     if not method in ['Nelder-Mead', 'CRS2']:
         raise ValueError('Unknown method %s, choices are Nelder-Mead or CRS2'%method)
 
+    if rand is None:
+        rand = np.random.RandomState()
     
     #REPORT_AFTER = 100
     
@@ -310,7 +313,7 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
         if method == 'CRS2':
 
             # choose n_dim random points but not best
-            choice = np.random.choice(n_points - 1, n_dim, replace=False)
+            choice = rand.choice(n_points - 1, n_dim, replace=False)
             choice[choice >= best_idx] += 1
             
             # --- STEP 1: Reflection ---
@@ -340,7 +343,7 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
  
             # --- STEP 2: Mutation ---
                 
-            w = np.random.uniform(0, 1, n_cart)
+            w = rand.uniform(0, 1, n_cart)
             mutated_p_cart = (1 + w) * s_cart[best_idx] - w * reflected_p_cart
 
             # first reflect at best point
@@ -349,7 +352,7 @@ def spherical_opt(func, method, initial_points, spherical_indices=[], max_iter=1
             mutated_p_spher = np.zeros_like(help_p_spher)
             # now do a combination of best and reflected point with weight w
             for dim in ['x', 'y', 'z']:
-                w = np.random.uniform(0, 1, n_spher)
+                w = rand.uniform(0, 1, n_spher)
                 mutated_p_spher[dim] = (1 - w) * s_spher[best_idx][dim] + w * help_p_spher[dim]
             fill_from_cart(mutated_p_spher)
 
