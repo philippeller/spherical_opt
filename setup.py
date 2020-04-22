@@ -2,7 +2,7 @@ from distutils.core import setup
 
 setup(
     name='spherical_opt',
-    version='0.1dev',
+    version='0.2dev',
     packages=['spherical_opt',],
     license='Apache 2.0',
     author='Philipp Eller',
