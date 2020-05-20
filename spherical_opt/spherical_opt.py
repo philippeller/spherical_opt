@@ -209,6 +209,9 @@ def spherical_opt(
     sstd = np.full(n_spher, fill_value=-1)
     cstd = np.full(n_cart, fill_value=-1)
 
+    if meta:
+        meta_dict = {}
+
     if method == 'Nelder-Mead':
         assert n_points == n_dim + 1, 'Nelder-Mead will need n+1 points for an n-dimensional function'
 
@@ -218,7 +221,6 @@ def spherical_opt(
             print('WARNING: number of points is very low')
 
         if meta:
-            meta_dict = {}
             meta_dict['num_simplex_successes'] = 0
             meta_dict['num_mutation_successes'] = 0
             meta_dict['num_failures'] = 0
@@ -365,7 +367,8 @@ def spherical_opt(
                 s_spher[worst_idx] = reflected_p_spher
                 x[worst_idx] = reflected_p
                 fvals[worst_idx] = new_fval
-                meta_dict['num_simplex_successes'] += 1
+                if meta:
+                    meta_dict['num_simplex_successes'] += 1
                 continue
 
             # --- STEP 2: Mutation ---
@@ -394,11 +397,13 @@ def spherical_opt(
                 s_spher[worst_idx] = mutated_p_spher
                 x[worst_idx] = mutated_p
                 fvals[worst_idx] = new_fval
-                meta_dict['num_mutation_successes'] += 1
+                if meta:
+                    meta_dict['num_mutation_successes'] += 1
                 continue
 
             # if we get here no method was successful in replacing worst point -> start over
-            meta_dict['num_failures'] += 1
+            if meta:
+                meta_dict['num_failures'] += 1
 
 
         elif method == 'Nelder-Mead':
