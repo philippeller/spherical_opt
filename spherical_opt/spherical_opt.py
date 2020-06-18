@@ -36,6 +36,7 @@ SPHER_T = np.dtype([
 ])
 """type to store spherical coordinates and handy quantities"""
 
+
 def fill_from_spher(s):
     """Fill in the remaining values in SPHER_T type giving the two angles `zen` and
     `az`.
@@ -57,39 +58,46 @@ def fill_from_cart(s_vector):
     and `z`.
     Parameters
     ----------
-    s_vector : SPHER_T
+    s_vector : np.ndarray with dtype SPHER_T
     """
-    for s in s_vector:
-        radius = np.sqrt(s['x']**2 + s['y']**2 + s['z']**2)
-        if radius > 0.:
-            # make sure they're length 1
-            s['x'] /= radius
-            s['y'] /= radius
-            s['z'] /= radius
-            s['az'] = np.arctan2(s['y'], s['x']) % (2 * np.pi)
-            s['coszen'] = s['z']
-            s['zen'] = np.arccos(s['coszen'])
-            s['sinzen'] = np.sin(s['zen'])
-            s['sinaz'] = np.sin(s['az'])
-            s['cosaz'] = np.cos(s['az'])
-        else:
-            #print 'zero length'
-            s['z'] = 1.
-            s['az'] = 0.
-            s['zen'] = 0.
-            s['coszen'] = 1.
-            s['sinzen'] = 0.
-            s['cosaz'] = 1.
-            s['sinaz'] = 0.
+    radii = np.sqrt(s_vector['x']**2 + s_vector['y']**2 + s_vector['z']**2)
+   
+    pos_rad_inds = radii > 0
+    s_vec_pos = s_vector[pos_rad_inds]
+    pos_radii = radii[pos_rad_inds]
+    
+    # make sure they're length 1
+    s_vec_pos['x'] /= pos_radii
+    s_vec_pos['y'] /= pos_radii
+    s_vec_pos['z'] /= pos_radii
+    s_vec_pos['az'] = np.arctan2(s_vec_pos['y'], s_vec_pos['x']) % (2 * np.pi)
+    s_vec_pos['coszen'] = s_vec_pos['z']
+    s_vec_pos['zen'] = np.arccos(s_vec_pos['coszen'])
+    s_vec_pos['sinzen'] = np.sin(s_vec_pos['zen'])
+    s_vec_pos['sinaz'] = np.sin(s_vec_pos['az'])
+    s_vec_pos['cosaz'] = np.cos(s_vec_pos['az'])
+
+    s_vec_zero = s_vector[~pos_rad_inds]
+    # print('zero length')
+    s_vec_zero['z'] = 1.
+    s_vec_zero['az'] = 0.
+    s_vec_zero['zen'] = 0.
+    s_vec_zero['coszen'] = 1.
+    s_vec_zero['sinzen'] = 0.
+    s_vec_zero['cosaz'] = 1.
+    s_vec_zero['sinaz'] = 0.
+
+    s_vector[pos_rad_inds] = s_vec_pos
+    s_vector[~pos_rad_inds] = s_vec_zero
 
 
 def reflect(old, centroid, new):
     """Reflect the old point around the centroid into the new point on the sphere.
     Parameters
     ----------
-    old : SPHER_T
-    centroid : SPHER_T
-    new : SPHER_T
+    old : SPHER_T or np.ndarray with dtype
+    centroid : SPHER_T or np.ndarray with dtype
+    new : SPHER_T or np.ndarray with dtype
     """
     x = old['x']
     y = old['y']
@@ -114,17 +122,31 @@ def reflect(old, centroid, new):
 
     fill_from_cart(new)
 
-def centroid(cart_coords, sph_coord):
+
+def centroid(cart_coords, sph_coord, axis=0):
     '''
     Compute centroid of two or more points
+    Parameters
+    ----------
+    cart_coords: np.ndarray
+    sph_coord: np.ndarray of type SPHER_T
+    axis : int
+        axis along which to conduct the average
     '''
-    centroid_sph = np.zeros_like(sph_coord[0])
+    # determine output shape and prepare output array
+    centroid_sph_shape = list(sph_coord.shape)
+    del centroid_sph_shape[axis]
+    centroid_sph = np.zeros(centroid_sph_shape, dtype=SPHER_T)
+
     for dim in ['x', 'y', 'z']:
-        centroid_sph[dim] = np.sum(sph_coord[dim]) / sph_coord.shape[0]
+        centroid_sph[dim] = np.sum(sph_coord[dim], axis=axis) / sph_coord.shape[axis]
+
     fill_from_cart(centroid_sph)
-    centroid_cart = np.sum(cart_coords, axis=0) / cart_coords.shape[0]
+
+    centroid_cart = np.sum(cart_coords, axis=axis) / cart_coords.shape[axis]
 
     return centroid_cart, centroid_sph
+
 
 def angular_dist(p1, p2): # theta1, theta2, phi1, phi2):
     '''
@@ -220,7 +242,7 @@ def spherical_opt(
 
     n_points, n_dim = initial_points.shape
     n_spher = len(spherical_indices)
-    n_cart = n_dim - 2 * n_spher
+    n_cart = n_dim - 2 * n_spher    
 
     sstd = np.full(n_spher, fill_value=-1)
     cstd = np.full(n_cart, fill_value=-1)
@@ -281,10 +303,19 @@ def spherical_opt(
 
     def create_x(x_cart, x_spher):
         '''Patch Cartesian and spherical coordinates back together into one array for function calls'''
-        x = np.empty(shape=n_dim)
-        x[all_cartesian_indices] = x_cart
-        x[all_azimuth_indices] = x_spher['az']
-        x[all_zenith_indices] = x_spher['zen']
+        if len(x_cart.shape) == 1:
+            # scalar case
+            x = np.empty(shape=(n_dim))
+            x[all_cartesian_indices] = x_cart
+            x[all_azimuth_indices] = x_spher['az']
+            x[all_zenith_indices] = x_spher['zen']
+        else:
+            # batch/vector case
+            x = np.empty(shape=(x_cart.shape[0], n_dim))
+            x[:, all_cartesian_indices] = x_cart
+            x[:, all_azimuth_indices] = x_spher['az']
+            x[:, all_zenith_indices] = x_spher['zen']
+
         return x
 
     best_fval = np.min(fvals)
@@ -361,7 +392,7 @@ def spherical_opt(
             # not including the best point
             batch_indices = rand.choice(n_points - 1, batch_size*n_dim, replace=False)
             batch_indices[batch_indices >= best_idx] += 1
-            batch_indices = batch_indices.reshape(batch_size, n_dim)
+            batch_indices = batch_indices.reshape((batch_size, n_dim))
 
             # --- STEP 1: Reflection ---
 
@@ -369,22 +400,17 @@ def spherical_opt(
             centroid_indices = copy.copy(batch_indices)
             centroid_indices[:, -1] = best_idx
 
-            pts_to_eval = np.empty(shape=(batch_size, n_dim))
-            reflected_p_carts = np.empty(shape=(batch_size, len(all_cartesian_indices)))
-            reflected_p_spheres = np.empty(shape=(batch_size, n_spher), dtype=SPHER_T)
+            cart_pts = s_cart[centroid_indices.flat].reshape((batch_size, n_dim, n_cart))
+            spher_pts = s_spher[centroid_indices.flat].reshape((batch_size, n_dim, n_spher))
+            # shape is (batch_size, n_dim, n_cart/n_sph). We want to average along axis 1
+            centroid_cart, centroid_spher = centroid(cart_pts, spher_pts, axis=1)
 
-            # build reflected points at which to evaluate the function
-            for i, (centroid_inds, batch_inds) in enumerate(zip(centroid_indices, batch_indices)):
-                centroid_cart, centroid_spher = centroid(s_cart[centroid_inds], s_spher[centroid_inds])
+            # create reflected points
+            reflected_p_carts = 2 * centroid_cart - s_cart[batch_indices[:, -1]]
+            reflected_p_sphers = np.zeros((batch_size, n_spher), dtype=SPHER_T)
+            reflect(s_spher[batch_indices[:, -1]], centroid_spher, reflected_p_sphers)
 
-                # reflect point
-                reflected_p_cart = 2 * centroid_cart - s_cart[batch_inds[-1]]
-                reflected_p_spher = np.zeros(n_spher, dtype=SPHER_T)
-                reflect(s_spher[batch_inds[-1]], centroid_spher, reflected_p_spher)
-                pts_to_eval[i] = create_x(reflected_p_cart, reflected_p_spher)
-                reflected_p_carts[i] = reflected_p_cart
-                reflected_p_spheres[i] = reflected_p_spher
-
+            pts_to_eval = create_x(reflected_p_carts, reflected_p_sphers)
             new_fvals = vec_func(pts_to_eval)
             n_calls += batch_size
           
@@ -400,7 +426,7 @@ def spherical_opt(
                 if new_fvals[new_ind] < fvals[replace_ind]:
                     # found a better point; replace the old point with the new one
                     s_cart[replace_ind] = reflected_p_carts[new_ind]
-                    s_spher[replace_ind] = reflected_p_spheres[new_ind]
+                    s_spher[replace_ind] = reflected_p_sphers[new_ind]
                     x[replace_ind] = pts_to_eval[new_ind]
                     fvals[replace_ind] = new_fvals[new_ind]
                     n_simplex_replaces += 1
@@ -420,36 +446,29 @@ def spherical_opt(
             inds_to_mutate = sorted_new[n_simplex_replaces:]
             inds_to_replace = sorted_idx[n_simplex_replaces:]
             p_cart_to_mutate = reflected_p_carts[inds_to_mutate]
-            p_spher_to_mutate = reflected_p_spheres[inds_to_mutate]
+            p_spher_to_mutate = reflected_p_sphers[inds_to_mutate]
             n_to_mutate = len(p_cart_to_mutate)
             
             # update best_idx for mutation
             best_idx = np.argmin(fvals)
             
-            w = rand.uniform(0, 1, n_cart*n_to_mutate).reshape(n_to_mutate, n_cart)
+            w = rand.uniform(0, 1, (n_to_mutate, n_cart))
             mutated_p_carts = (1 + w) * s_cart[best_idx] - w * p_cart_to_mutate
 
-            mutated_p_sphers = np.empty_like(p_spher_to_mutate)
-            for i, reflected_p_spher in enumerate(p_spher_to_mutate):
-                # first reflect at best point
-                help_p_spher = np.zeros(n_spher, dtype=SPHER_T)
-                reflect(reflected_p_spher, s_spher[best_idx], help_p_spher)
-                mutated_p_spher = np.zeros_like(help_p_spher)
-                # now do a combination of best and reflected point with weight w
-                for dim in ['x', 'y', 'z']:
-                    w = rand.uniform(0, 1, n_spher)
-                    mutated_p_spher[dim] = (1 - w) * s_spher[best_idx][dim] + w * help_p_spher[dim]
-                fill_from_cart(mutated_p_spher)
-                mutated_p_sphers[i] = mutated_p_spher
+            # first reflect at best point
+            help_p_spher = np.zeros((n_to_mutate, n_spher), dtype=SPHER_T)
+            reflect(p_spher_to_mutate, s_spher[best_idx], help_p_spher)
+          
+            # now do a combination of best and reflected point with random weights
+            mutated_p_sphers = np.zeros_like(help_p_spher)
+            w = rand.uniform(0, 1, (3, n_to_mutate, n_spher))
+            for i, dim in enumerate(['x', 'y', 'z']):
+                w_i = w[i]
+                mutated_p_sphers[dim] = (1 - w_i) * s_spher[best_idx][dim] + w_i * help_p_spher[dim]
+            fill_from_cart(mutated_p_sphers)
 
-            pts_to_eval = np.empty(shape=(n_to_mutate, n_dim))
-            for i, (m_p_cart, m_p_spher) in enumerate(zip(mutated_p_carts, mutated_p_sphers)):
-                pts_to_eval[i] = create_x(m_p_cart, m_p_spher)
-
-            if n_to_mutate > 0:
-                new_fvals = vec_func(pts_to_eval)
-            else:
-                new_fvals = []            
+            pts_to_eval = create_x(mutated_p_carts, mutated_p_sphers)
+            new_fvals = vec_func(pts_to_eval)
             n_calls += n_to_mutate
                 
             # replace old points with new points that have lower values of func
