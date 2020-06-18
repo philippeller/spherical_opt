@@ -138,6 +138,7 @@ def spherical_opt(
     method,
     initial_points,
     spherical_indices=tuple(),
+    batch_size=1,
     max_iter=10000,
     max_calls=None,
     max_noimprovement=1000,
@@ -154,6 +155,8 @@ def spherical_opt(
     -----------
     func : callable
         objective function
+        if batch_size == 1, func should be a scalar function
+        if batch_size >  1, func should be a vector function
     method : string
         choices of 'Nelder-Mead' and 'CRS2'
     inital_points : array
@@ -163,6 +166,9 @@ def spherical_opt(
         `[[0,1], [7,8]]` would identify indices 0 as azimuth and 1 as zenith as
         spherical coordinates and 7 and 8 another pair of independent spherical
         coordinates
+    batch_size : int
+        the number of new points proposed at each algorithm iteration
+        batch_size > 1 is only supported for the CRS2 method 
     max_iter : int
         maximum number of iterations
     max_calls : int
@@ -181,7 +187,7 @@ def spherical_opt(
         points p_i drops below sstdthresh, minimization terminates, for
         negative values, coordinate will be ignored
     verbose : bool
-    rand : numpy random state (optional)
+    rand : numpy random state or generator (optional)
 
     Notes
     -----
@@ -197,8 +203,18 @@ def spherical_opt(
     if not method in ['Nelder-Mead', 'CRS2']:
         raise ValueError('Unknown method %s, choices are Nelder-Mead or CRS2'%method)
 
+    if batch_size > 1:
+        if method != 'CRS2':
+            raise ValueError(
+                'batch_size > 1 is only supported for the CRS2 method!'
+                f' You selected the {method} method.')
+        vec_func = func
+    else:
+        def vec_func(x):
+            return np.array([func(x_i) for x_i in x])
+
     if rand is None:
-        rand = np.random.RandomState()
+        rand = np.random.default_rng()
 
     #REPORT_AFTER = 100
 
@@ -217,6 +233,8 @@ def spherical_opt(
 
     if method == 'CRS2':
         assert n_points > n_dim, 'CRS will need more points than dimensions'
+        assert (n_points - 1) / n_dim >= batch_size, f'(n_points - 1) / n_dim must be >= batch size ({batch_size})!'
+        
         if n_points < 10 * n_dim:
             print('WARNING: number of points is very low')
 
@@ -249,9 +267,7 @@ def spherical_opt(
     all_cartesian_indices = list(set(range(n_dim)) ^ set(all_spherical_indices))
 
     # first thing, pack the points into separate cartesian and spherical coordinates
-    fvals = np.empty(shape=(n_points,))
-    for i in range(n_points):
-        fvals[i] = func(initial_points[i])
+    fvals = vec_func(initial_points)
 
     s_cart = initial_points[:, all_cartesian_indices]
     #print(s_cart)
@@ -328,9 +344,9 @@ def spherical_opt(
                 stopping_flag = 3
                 break
 
-        sorted_idx = np.argsort(fvals)
-        worst_idx = sorted_idx[-1]
-        best_idx = sorted_idx[0]
+        sorted_idx = np.argsort(fvals)[::-1]
+        worst_idx = sorted_idx[0]
+        best_idx = sorted_idx[-1]     
 
         new_best_fval = fvals[best_idx]
         if new_best_fval < best_fval:
@@ -341,70 +357,121 @@ def spherical_opt(
 
         if method == 'CRS2':
 
-            # choose n_dim random points but not best
-            choice = rand.choice(n_points - 1, n_dim, replace=False)
-            choice[choice >= best_idx] += 1
+            # shuffle into batch_size groups of n_dim points, 
+            # not including the best point
+            batch_indices = rand.choice(n_points - 1, batch_size*n_dim, replace=False)
+            batch_indices[batch_indices >= best_idx] += 1
+            batch_indices = batch_indices.reshape(batch_size, n_dim)
 
             # --- STEP 1: Reflection ---
 
-            # centroid of choice except N+1, but including best
-            centroid_indices = copy.copy(choice)
-            centroid_indices[-1] = best_idx
-            centroid_cart, centroid_spher = centroid(s_cart[centroid_indices], s_spher[centroid_indices])
+            # centroid of choices except last, but including best
+            centroid_indices = copy.copy(batch_indices)
+            centroid_indices[:, -1] = best_idx
 
-            # reflect point
-            reflected_p_cart = 2 * centroid_cart - s_cart[choice[-1]]
-            reflected_p_spher = np.zeros(n_spher, dtype=SPHER_T)
-            reflect(s_spher[choice[-1]], centroid_spher, reflected_p_spher)
-            reflected_p = create_x(reflected_p_cart, reflected_p_spher)
+            pts_to_eval = np.empty(shape=(batch_size, n_dim))
+            reflected_p_carts = np.empty(shape=(batch_size, len(all_cartesian_indices)))
+            reflected_p_spheres = np.empty(shape=(batch_size, n_spher), dtype=SPHER_T)
 
-            new_fval = func(reflected_p)
-            n_calls += 1
+            # build reflected points at which to evaluate the function
+            for i, (centroid_inds, batch_inds) in enumerate(zip(centroid_indices, batch_indices)):
+                centroid_cart, centroid_spher = centroid(s_cart[centroid_inds], s_spher[centroid_inds])
 
-            if new_fval < fvals[worst_idx]:
-                # found better point
-                s_cart[worst_idx] = reflected_p_cart
-                s_spher[worst_idx] = reflected_p_spher
-                x[worst_idx] = reflected_p
-                fvals[worst_idx] = new_fval
-                if meta:
-                    meta_dict['num_simplex_successes'] += 1
-                continue
+                # reflect point
+                reflected_p_cart = 2 * centroid_cart - s_cart[batch_inds[-1]]
+                reflected_p_spher = np.zeros(n_spher, dtype=SPHER_T)
+                reflect(s_spher[batch_inds[-1]], centroid_spher, reflected_p_spher)
+                pts_to_eval[i] = create_x(reflected_p_cart, reflected_p_spher)
+                reflected_p_carts[i] = reflected_p_cart
+                reflected_p_spheres[i] = reflected_p_spher
+
+            new_fvals = vec_func(pts_to_eval)
+            n_calls += batch_size
+          
+            # replace old points with new points that have lower values of func
+            # ATF note: this way of doing things is simple, and guarantees
+            # that we keep the best point from this batch provided it is better than
+            # the worst point seen before.
+            # If we want to guarantee that we keep as many of the new points as possible,
+            # a different, more complicted implementation may be warranted.
+            sorted_new = np.argsort(new_fvals)
+            n_simplex_replaces = 0
+            for new_ind, replace_ind in zip(sorted_new, sorted_idx):            
+                if new_fvals[new_ind] < fvals[replace_ind]:
+                    # found a better point; replace the old point with the new one
+                    s_cart[replace_ind] = reflected_p_carts[new_ind]
+                    s_spher[replace_ind] = reflected_p_spheres[new_ind]
+                    x[replace_ind] = pts_to_eval[new_ind]
+                    fvals[replace_ind] = new_fvals[new_ind]
+                    n_simplex_replaces += 1
+                else:
+                    break
+                
+            if meta:
+                meta_dict['num_simplex_successes'] += n_simplex_replaces
+
+            if n_simplex_replaces == batch_size:
+                # no points left for mutation; 
+                # continue to next iteration
+                continue 
 
             # --- STEP 2: Mutation ---
+            
+            inds_to_mutate = sorted_new[n_simplex_replaces:]
+            inds_to_replace = sorted_idx[n_simplex_replaces:]
+            p_cart_to_mutate = reflected_p_carts[inds_to_mutate]
+            p_spher_to_mutate = reflected_p_spheres[inds_to_mutate]
+            n_to_mutate = len(p_cart_to_mutate)
+            
+            # update best_idx for mutation
+            best_idx = np.argmin(fvals)
+            
+            w = rand.uniform(0, 1, n_cart*n_to_mutate).reshape(n_to_mutate, n_cart)
+            mutated_p_carts = (1 + w) * s_cart[best_idx] - w * p_cart_to_mutate
 
-            w = rand.uniform(0, 1, n_cart)
-            mutated_p_cart = (1 + w) * s_cart[best_idx] - w * reflected_p_cart
+            mutated_p_sphers = np.empty_like(p_spher_to_mutate)
+            for i, reflected_p_spher in enumerate(p_spher_to_mutate):
+                # first reflect at best point
+                help_p_spher = np.zeros(n_spher, dtype=SPHER_T)
+                reflect(reflected_p_spher, s_spher[best_idx], help_p_spher)
+                mutated_p_spher = np.zeros_like(help_p_spher)
+                # now do a combination of best and reflected point with weight w
+                for dim in ['x', 'y', 'z']:
+                    w = rand.uniform(0, 1, n_spher)
+                    mutated_p_spher[dim] = (1 - w) * s_spher[best_idx][dim] + w * help_p_spher[dim]
+                fill_from_cart(mutated_p_spher)
+                mutated_p_sphers[i] = mutated_p_spher
 
-            # first reflect at best point
-            help_p_spher = np.zeros(n_spher, dtype=SPHER_T)
-            reflect(reflected_p_spher, s_spher[best_idx], help_p_spher)
-            mutated_p_spher = np.zeros_like(help_p_spher)
-            # now do a combination of best and reflected point with weight w
-            for dim in ['x', 'y', 'z']:
-                w = rand.uniform(0, 1, n_spher)
-                mutated_p_spher[dim] = (1 - w) * s_spher[best_idx][dim] + w * help_p_spher[dim]
-            fill_from_cart(mutated_p_spher)
+            pts_to_eval = np.empty(shape=(n_to_mutate, n_dim))
+            for i, (m_p_cart, m_p_spher) in enumerate(zip(mutated_p_carts, mutated_p_sphers)):
+                pts_to_eval[i] = create_x(m_p_cart, m_p_spher)
 
-            mutated_p = create_x(mutated_p_cart, mutated_p_spher)
+            if n_to_mutate > 0:
+                new_fvals = vec_func(pts_to_eval)
+            else:
+                new_fvals = []            
+            n_calls += n_to_mutate
+                
+            # replace old points with new points that have lower values of func
+            # ATF note: same as above. there may be a more effective way to do this
+            sorted_new = np.argsort(new_fvals)
+            n_mutation_replaces = 0
+            for new_ind, replace_ind in zip(sorted_new, inds_to_replace):            
+                if new_fvals[new_ind] < fvals[replace_ind]:
+                    # found a better point; replace the old point with the new one
+                    s_cart[replace_ind] = mutated_p_carts[new_ind]
+                    s_spher[replace_ind] = mutated_p_sphers[new_ind]
+                    x[replace_ind] = pts_to_eval[new_ind]
+                    fvals[replace_ind] = new_fvals[new_ind]
+                    n_mutation_replaces += 1
+                else:
+                    break
 
-            new_fval = func(mutated_p)
-            n_calls += 1
+            if meta:  
+                meta_dict['num_mutation_successes'] += n_mutation_replaces
 
-            if new_fval < fvals[worst_idx]:
-                # found better point
-                s_cart[worst_idx] = mutated_p_cart
-                s_spher[worst_idx] = mutated_p_spher
-                x[worst_idx] = mutated_p
-                fvals[worst_idx] = new_fval
-                if meta:
-                    meta_dict['num_mutation_successes'] += 1
-                continue
-
-            # if we get here no method was successful in replacing worst point -> start over
-            if meta:
-                meta_dict['num_failures'] += 1
-
+                if n_simplex_replaces == n_mutation_replaces == 0: 
+                    meta_dict['num_failures'] += 1
 
         elif method == 'Nelder-Mead':
 
