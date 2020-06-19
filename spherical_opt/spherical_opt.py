@@ -155,6 +155,55 @@ def angular_dist(p1, p2): # theta1, theta2, phi1, phi2):
     return np.arccos(p1['coszen'] * p2['coszen'] + p1['sinzen'] * p2['sinzen'] * np.cos(p1['az'] - p2['az']))
 
 
+def find_replacements(old_list, new_list, sorted_old_inds=None, sorted_new_inds=None):
+    '''find elements of new_list that are smaller than elements of old_list
+
+    Helps replace elements of old list with elements of new list that are smaller.
+
+    If there are N replacements, the N lowest values from new_list will replace the
+    N highest values from old_list, and it will be possible to pair each replaced value
+    with a replacement value that is smaller.
+
+    The number of replacements will be as large as possible while respecting the above conditions.
+    
+    Element ordering is determined via np.argsort if sorted_<old/new>_inds is None,
+    otherwise the ordering is determined by the provided sorted_<old/new>_inds parameters.
+    
+    Returns
+    -------
+    list of tuples
+        list of tuples of the form (old_ind, new_ind), meaning that the item at index old_ind
+        in old_list should be replaced with the item at index new_ind in new_list
+    '''
+    
+    if sorted_old_inds is None:
+        sorted_old_inds = np.argsort(old_list)
+    if sorted_new_inds is None:
+        sorted_new_inds = np.argsort(new_list)
+        
+    sorted_old_reversed = sorted_old_inds[::-1]
+    
+    replacements = []
+    best_new = new_list[sorted_new_inds[0]]
+    worst_old = old_list[sorted_old_reversed[0]]
+    for new_ind, old_ind in zip(sorted_new_inds, sorted_old_reversed):
+        if new_list[new_ind] < old_list[old_ind]:
+            replacements.append((old_ind, new_ind))
+        else:
+            # check if the best new point is better than this old point
+            # and if this new point is better than the worst old point
+            # if so, we could have replaced this old point with the best new one
+            # and the worst old point with this new one
+            if best_new < old_list[old_ind] and new_list[new_ind] < worst_old:
+                replacements.append((old_ind, new_ind))
+
+            # stop here; all remaining new values are greater
+            # than all remaining old values
+            break
+        
+    return replacements
+
+
 def spherical_opt(
     func,
     method,
@@ -376,7 +425,6 @@ def spherical_opt(
                 break
 
         sorted_idx = np.argsort(fvals)
-        sorted_reversed = sorted_idx[::-1]
         worst_idx = sorted_idx[-1]
         best_idx = sorted_idx[0]
 
@@ -415,24 +463,16 @@ def spherical_opt(
             n_calls += batch_size
           
             # replace old points with new points that have lower values of func
-            # ATF note: this way of doing things is simple, and guarantees
-            # that we keep the best point from this batch provided it is better than
-            # the worst point seen before.
-            # If we want to guarantee that we keep as many of the new points as possible,
-            # a different, more complicted implementation may be warranted.
             sorted_new = np.argsort(new_fvals)
-            n_simplex_replaces = 0
-            for new_ind, replace_ind in zip(sorted_new, sorted_reversed):
-                if new_fvals[new_ind] < fvals[replace_ind]:
-                    # found a better point; replace the old point with the new one
-                    s_cart[replace_ind] = reflected_p_carts[new_ind]
-                    s_spher[replace_ind] = reflected_p_sphers[new_ind]
-                    x[replace_ind] = pts_to_eval[new_ind]
-                    fvals[replace_ind] = new_fvals[new_ind]
-                    n_simplex_replaces += 1
-                else:
-                    break
-                
+            replacements = find_replacements(fvals, new_fvals, sorted_idx, sorted_new)
+            for replace_ind, new_ind in replacements:
+                s_cart[replace_ind] = reflected_p_carts[new_ind]
+                s_spher[replace_ind] = reflected_p_sphers[new_ind]
+                x[replace_ind] = pts_to_eval[new_ind]
+                fvals[replace_ind] = new_fvals[new_ind]
+
+            n_simplex_replaces = len(replacements)
+
             if meta:
                 meta_dict['num_simplex_successes'] += n_simplex_replaces
 
@@ -444,7 +484,8 @@ def spherical_opt(
             # --- STEP 2: Mutation ---
             
             inds_to_mutate = sorted_new[n_simplex_replaces:]
-            inds_to_replace = sorted_reversed[n_simplex_replaces:]
+            # do not replace points created in this iteration
+            inds_to_replace = sorted_idx[:len(sorted_idx) - n_simplex_replaces]
             p_cart_to_mutate = reflected_p_carts[inds_to_mutate]
             p_spher_to_mutate = reflected_p_sphers[inds_to_mutate]
             n_to_mutate = len(p_cart_to_mutate)
@@ -470,21 +511,16 @@ def spherical_opt(
             pts_to_eval = create_x(mutated_p_carts, mutated_p_sphers)
             new_fvals = vec_func(pts_to_eval)
             n_calls += n_to_mutate
-                
-            # replace old points with new points that have lower values of func
-            # ATF note: same as above. there may be a more effective way to do this
-            sorted_new = np.argsort(new_fvals)
-            n_mutation_replaces = 0
-            for new_ind, replace_ind in zip(sorted_new, inds_to_replace):
-                if new_fvals[new_ind] < fvals[replace_ind]:
-                    # found a better point; replace the old point with the new one
-                    s_cart[replace_ind] = mutated_p_carts[new_ind]
-                    s_spher[replace_ind] = mutated_p_sphers[new_ind]
-                    x[replace_ind] = pts_to_eval[new_ind]
-                    fvals[replace_ind] = new_fvals[new_ind]
-                    n_mutation_replaces += 1
-                else:
-                    break
+                            
+            # replace old points with new points that have lower values of func            
+            replacements = find_replacements(fvals, new_fvals, inds_to_replace)
+            for replace_ind, new_ind in replacements:
+                s_cart[replace_ind] = mutated_p_carts[new_ind]
+                s_spher[replace_ind] = mutated_p_sphers[new_ind]
+                x[replace_ind] = pts_to_eval[new_ind]
+                fvals[replace_ind] = new_fvals[new_ind]
+            
+            n_mutation_replaces = len(replacements)
 
             if meta:
                 meta_dict['num_mutation_successes'] += n_mutation_replaces
