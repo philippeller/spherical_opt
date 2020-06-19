@@ -190,7 +190,7 @@ def spherical_opt(
         coordinates
     batch_size : int
         the number of new points proposed at each algorithm iteration
-        batch_size > 1 is only supported for the CRS2 method 
+        batch_size > 1 is only supported for the CRS2 method
     max_iter : int
         maximum number of iterations
     max_calls : int
@@ -242,7 +242,7 @@ def spherical_opt(
 
     n_points, n_dim = initial_points.shape
     n_spher = len(spherical_indices)
-    n_cart = n_dim - 2 * n_spher    
+    n_cart = n_dim - 2 * n_spher
 
     sstd = np.full(n_spher, fill_value=-1)
     cstd = np.full(n_cart, fill_value=-1)
@@ -389,7 +389,7 @@ def spherical_opt(
 
         if method == 'CRS2':
 
-            # shuffle into batch_size groups of n_dim points, 
+            # shuffle into batch_size groups of n_dim points,
             # not including the best point
             batch_indices = rand.choice(n_points - 1, (batch_size, n_dim), replace=False)
             batch_indices[batch_indices >= best_idx] += 1
@@ -437,9 +437,9 @@ def spherical_opt(
                 meta_dict['num_simplex_successes'] += n_simplex_replaces
 
             if n_simplex_replaces == batch_size:
-                # no points left for mutation; 
+                # no points left for mutation;
                 # continue to next iteration
-                continue 
+                continue
 
             # --- STEP 2: Mutation ---
             
@@ -475,7 +475,7 @@ def spherical_opt(
             # ATF note: same as above. there may be a more effective way to do this
             sorted_new = np.argsort(new_fvals)
             n_mutation_replaces = 0
-            for new_ind, replace_ind in zip(sorted_new, inds_to_replace):            
+            for new_ind, replace_ind in zip(sorted_new, inds_to_replace):
                 if new_fvals[new_ind] < fvals[replace_ind]:
                     # found a better point; replace the old point with the new one
                     s_cart[replace_ind] = mutated_p_carts[new_ind]
@@ -486,10 +486,10 @@ def spherical_opt(
                 else:
                     break
 
-            if meta:  
+            if meta:
                 meta_dict['num_mutation_successes'] += n_mutation_replaces
 
-                if n_simplex_replaces == n_mutation_replaces == 0: 
+                if n_simplex_replaces == n_mutation_replaces == 0:
                     meta_dict['num_failures'] += 1
 
         elif method == 'Nelder-Mead':
