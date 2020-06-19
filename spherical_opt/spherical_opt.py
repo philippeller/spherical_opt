@@ -40,6 +40,7 @@ SPHER_T = np.dtype([
 def fill_from_spher(s):
     """Fill in the remaining values in SPHER_T type giving the two angles `zen` and
     `az`.
+
     Parameters
     ----------
     s : SPHER_T or np.ndarray with dtype SPHER_T
@@ -56,6 +57,7 @@ def fill_from_spher(s):
 def fill_from_cart(s_vector):
     """Fill in the remaining values in SPHER_T type giving the cart, coords. `x`, `y`
     and `z`.
+    
     Parameters
     ----------
     s_vector : np.ndarray with dtype SPHER_T
@@ -93,6 +95,7 @@ def fill_from_cart(s_vector):
 
 def reflect(old, centroid, new):
     """Reflect the old point around the centroid into the new point on the sphere.
+
     Parameters
     ----------
     old : SPHER_T or np.ndarray with dtype SPHER_T
@@ -124,15 +127,15 @@ def reflect(old, centroid, new):
 
 
 def centroid(cart_coords, sph_coord, axis=0):
-    '''
-    Compute centroid of two or more points
+    """Compute centroid of two or more points
+
     Parameters
     ----------
-    cart_coords: np.ndarray
-    sph_coord: np.ndarray of type SPHER_T
+    cart_coords : np.ndarray
+    sph_coord : np.ndarray of type SPHER_T
     axis : int
         axis along which to conduct the average
-    '''
+    """
     # determine output shape and prepare output array
     centroid_sph_shape = list(sph_coord.shape)
     del centroid_sph_shape[axis]
@@ -149,14 +152,14 @@ def centroid(cart_coords, sph_coord, axis=0):
 
 
 def angular_dist(p1, p2): # theta1, theta2, phi1, phi2):
-    '''
+    """
     calculate the angular distance between two directions in spherical coords
-    '''
+    """
     return np.arccos(p1['coszen'] * p2['coszen'] + p1['sinzen'] * p2['sinzen'] * np.cos(p1['az'] - p2['az']))
 
 
 def find_replacements(old_list, new_list, sorted_old_inds=None, sorted_new_inds=None):
-    '''find elements of new_list that are smaller than elements of old_list
+    """find elements of new_list that are smaller than elements of old_list
 
     Helps replace elements of old list with elements of new list that are smaller.
 
@@ -174,7 +177,7 @@ def find_replacements(old_list, new_list, sorted_old_inds=None, sorted_new_inds=
     list of tuples
         list of tuples of the form (old_ind, new_ind), meaning that the item at index old_ind
         in old_list should be replaced with the item at index new_ind in new_list
-    '''
+    """
     
     if sorted_old_inds is None:
         sorted_old_inds = np.argsort(old_list)
@@ -220,7 +223,7 @@ def spherical_opt(
     verbose=False,
     rand=None,
 ):
-    '''spherical minimization
+    """spherical minimization
 
     Parameters:
     -----------
@@ -237,7 +240,7 @@ def spherical_opt(
         `[[0,1], [7,8]]` would identify indices 0 as azimuth and 1 as zenith as
         spherical coordinates and 7 and 8 another pair of independent spherical
         coordinates
-    batch_size : int
+    batch_size : int, optional 
         the number of new points proposed at each algorithm iteration
         batch_size > 1 is only supported for the CRS2 method
     max_iter : int
@@ -270,7 +273,7 @@ def spherical_opt(
     .. [1] P. Kaelo, M.M. Ali, "Some variants of the controlled random
        search algorithm for global optimization," J. Optim. Theory Appl.,
        130 (2) (2006), pp. 253-264.
-    '''
+    """
     if not method in ['Nelder-Mead', 'CRS2']:
         raise ValueError('Unknown method %s, choices are Nelder-Mead or CRS2'%method)
 
