@@ -42,7 +42,7 @@ def fill_from_spher(s):
     `az`.
     Parameters
     ----------
-    s : SPHER_T
+    s : SPHER_T or np.ndarray with dtype SPHER_T
     """
     s['sinzen'] = np.sin(s['zen'])
     s['coszen'] = np.cos(s['zen'])
@@ -95,9 +95,9 @@ def reflect(old, centroid, new):
     """Reflect the old point around the centroid into the new point on the sphere.
     Parameters
     ----------
-    old : SPHER_T or np.ndarray with dtype
-    centroid : SPHER_T or np.ndarray with dtype
-    new : SPHER_T or np.ndarray with dtype
+    old : SPHER_T or np.ndarray with dtype SPHER_T
+    centroid : SPHER_T or np.ndarray with dtype SPHER_T
+    new : SPHER_T or np.ndarray with dtype SPHER_T
     """
     x = old['x']
     y = old['y']
@@ -375,9 +375,10 @@ def spherical_opt(
                 stopping_flag = 3
                 break
 
-        sorted_idx = np.argsort(fvals)[::-1]
-        worst_idx = sorted_idx[0]
-        best_idx = sorted_idx[-1]     
+        sorted_idx = np.argsort(fvals)
+        sorted_reversed = sorted_idx[::-1]
+        worst_idx = sorted_idx[-1]
+        best_idx = sorted_idx[0]
 
         new_best_fval = fvals[best_idx]
         if new_best_fval < best_fval:
@@ -390,9 +391,8 @@ def spherical_opt(
 
             # shuffle into batch_size groups of n_dim points, 
             # not including the best point
-            batch_indices = rand.choice(n_points - 1, batch_size*n_dim, replace=False)
+            batch_indices = rand.choice(n_points - 1, (batch_size, n_dim), replace=False)
             batch_indices[batch_indices >= best_idx] += 1
-            batch_indices = batch_indices.reshape((batch_size, n_dim))
 
             # --- STEP 1: Reflection ---
 
@@ -422,7 +422,7 @@ def spherical_opt(
             # a different, more complicted implementation may be warranted.
             sorted_new = np.argsort(new_fvals)
             n_simplex_replaces = 0
-            for new_ind, replace_ind in zip(sorted_new, sorted_idx):            
+            for new_ind, replace_ind in zip(sorted_new, sorted_reversed):
                 if new_fvals[new_ind] < fvals[replace_ind]:
                     # found a better point; replace the old point with the new one
                     s_cart[replace_ind] = reflected_p_carts[new_ind]
@@ -444,7 +444,7 @@ def spherical_opt(
             # --- STEP 2: Mutation ---
             
             inds_to_mutate = sorted_new[n_simplex_replaces:]
-            inds_to_replace = sorted_idx[n_simplex_replaces:]
+            inds_to_replace = sorted_reversed[n_simplex_replaces:]
             p_cart_to_mutate = reflected_p_carts[inds_to_mutate]
             p_spher_to_mutate = reflected_p_sphers[inds_to_mutate]
             n_to_mutate = len(p_cart_to_mutate)
