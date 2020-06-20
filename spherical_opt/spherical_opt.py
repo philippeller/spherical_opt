@@ -164,13 +164,15 @@ def find_replacements(old_list, new_list, sorted_old_inds=None, sorted_new_inds=
     Helps replace elements of old list with elements of new list that are smaller.
 
     If there are N replacements, the N lowest values from new_list will replace the
-    N highest values from old_list, and it will be possible to pair each replaced value
-    with a replacement value that is smaller.
+    N highest values from old_list, and each replaced old value will be paired with
+    a replacement new value that is smaller.
 
     The number of replacements will be as large as possible while respecting the above conditions.
     
-    Element ordering is determined via np.argsort if sorted_<old/new>_inds is None,
-    otherwise the ordering is determined by the provided sorted_<old/new>_inds parameters.
+    Within-list element ordering is determined via np.argsort if sorted_<old/new>_inds is None,
+    otherwise it is determined by the provided sorted_<old/new>_inds parameters.
+
+    the length of new_list must be less than or equal to the length of old_list
     
     Returns
     -------
@@ -183,28 +185,23 @@ def find_replacements(old_list, new_list, sorted_old_inds=None, sorted_new_inds=
         sorted_old_inds = np.argsort(old_list)
     if sorted_new_inds is None:
         sorted_new_inds = np.argsort(new_list)
-        
-    sorted_old_reversed = sorted_old_inds[::-1]
-    
-    replacements = []
-    best_new = new_list[sorted_new_inds[0]]
-    worst_old = old_list[sorted_old_reversed[0]]
-    for new_ind, old_ind in zip(sorted_new_inds, sorted_old_reversed):
-        if new_list[new_ind] < old_list[old_ind]:
-            replacements.append((old_ind, new_ind))
-        else:
-            # check if the best new point is better than this old point
-            # and if this new point is better than the worst old point
-            # if so, we could have replaced this old point with the best new one
-            # and the worst old point with this new one
-            if best_new < old_list[old_ind] and new_list[new_ind] < worst_old:
-                replacements.append((old_ind, new_ind))
+         
+    max_N = len(sorted_new_inds)
 
-            # stop here; all remaining new values are greater
-            # than all remaining old values
-            break
+    # Determine the maximum number of possible replacements
+    for N_to_replace in range(max_N, 0, -1):
+        # N_to_replace worst old values in increasing order
+        old_inds = sorted_old_inds[-N_to_replace:]
+        # N_to_replace best new values
+        new_inds = sorted_new_inds[:N_to_replace]
         
-    return replacements
+        # we can replace N_to_replace values if and only if
+        # new[new_inds[i]] < old[old_inds[i]] for all i
+        less_thans = new_list[new_inds] < old_list[old_inds]
+        if np.count_nonzero(less_thans) == N_to_replace:
+            return list(zip(old_inds, new_inds))
+        
+    return []
 
 
 def spherical_opt(
@@ -515,7 +512,7 @@ def spherical_opt(
             new_fvals = vec_func(pts_to_eval)
             n_calls += n_to_mutate
                             
-            # replace old points with new points that have lower values of func            
+            # replace old points with new points that have lower values of func
             replacements = find_replacements(fvals, new_fvals, inds_to_replace)
             for replace_ind, new_ind in replacements:
                 s_cart[replace_ind] = mutated_p_carts[new_ind]
