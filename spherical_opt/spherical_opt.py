@@ -204,11 +204,21 @@ def find_replacements(old_list, new_list, sorted_old_inds=None, sorted_new_inds=
     return []
 
 
+def clip_x_cart(x_cart, param_boundaries):
+    """clip cartesian coordiantes according to param_boundaries
+
+    modifies x_cart in place
+    """
+    for (ind, (low, high)) in param_boundaries:
+        x_cart[:, ind] = np.clip(x_cart[:, ind], a_min=low, a_max=high)
+
+
 def spherical_opt(
     func,
     method,
     initial_points,
     spherical_indices=tuple(),
+    param_boundaries=tuple(),
     batch_size=1,
     max_iter=10000,
     max_calls=None,
@@ -237,6 +247,11 @@ def spherical_opt(
         `[[0,1], [7,8]]` would identify indices 0 as azimuth and 1 as zenith as
         spherical coordinates and 7 and 8 another pair of independent spherical
         coordinates
+    param_boundaries : iterable of tuples
+        hard param boundaries. For Cartesian coordinates only. Tuples should be of form
+        `(param_index, (low_limit, high_limit))`. Use `None` for high or low limit
+        to omit the check on that side. The optimizer will clip the param at param_index to
+        the specified limits.
     batch_size : int, optional 
         the number of new points proposed at each algorithm iteration
         batch_size > 1 is only supported for the CRS2 method
@@ -347,6 +362,17 @@ def spherical_opt(
     s_spher['zen'] = initial_points[:, all_zenith_indices]
     fill_from_spher(s_spher)
 
+    # adjust param boundary indices to refer to indices in s_cart, not x
+    try:
+        param_boundaries = tuple(
+            (all_cartesian_indices.index(i), (low, high))
+            for i, (low, high) in param_boundaries
+        )
+    except ValueError as e:
+        raise ValueError(
+            "Invalid param_boundary index! Note that a param cannot be both spherical and bounded."
+        ) from e
+
     # the array containing points in the original form
     x = copy.copy(initial_points)
 
@@ -455,6 +481,7 @@ def spherical_opt(
 
             # create reflected points
             reflected_p_carts = 2 * centroid_cart - s_cart[batch_indices[:, -1]]
+            clip_x_cart(reflected_p_carts, param_boundaries)
             reflected_p_sphers = np.zeros((batch_size, n_spher), dtype=SPHER_T)
             reflect(s_spher[batch_indices[:, -1]], centroid_spher, reflected_p_sphers)
 
@@ -495,6 +522,7 @@ def spherical_opt(
             
             w = rand.uniform(0, 1, (n_to_mutate, n_cart))
             mutated_p_carts = (1 + w) * s_cart[best_idx] - w * p_cart_to_mutate
+            clip_x_cart(mutated_p_carts, param_boundaries)
 
             # first reflect at best point
             help_p_spher = np.zeros((n_to_mutate, n_spher), dtype=SPHER_T)
@@ -538,6 +566,7 @@ def spherical_opt(
 
             # reflect point
             reflected_p_cart = 2 * centroid_cart - s_cart[worst_idx]
+            clip_x_cart(reflected_p_cart, param_boundaries)
             reflected_p_spher = np.zeros(n_spher, dtype=SPHER_T)
             reflect(s_spher[worst_idx], centroid_spher, reflected_p_spher)
             reflected_p = create_x(reflected_p_cart, reflected_p_spher)
@@ -561,6 +590,7 @@ def spherical_opt(
                 expanded_p_spher = np.zeros(n_spher, dtype=SPHER_T)
                 reflect(centroid_spher, reflected_p_spher, expanded_p_spher)
                 expanded_p_cart = 2. * reflected_p_cart - centroid_cart
+                clip_x_cart(expanded_p_cart, param_boundaries)
                 expanded_p = create_x(expanded_p_cart, expanded_p_spher)
                 expanded_fval = func(expanded_p)
                 n_calls += 1
@@ -582,6 +612,7 @@ def spherical_opt(
             if reflected_fval < fvals[worst_idx]:
                 if verbose: print('contract (outside)')
                 contracted_p_cart, contracted_p_spher = centroid(np.vstack([centroid_cart, reflected_p_cart]), np.vstack([centroid_spher, reflected_p_spher]))
+                clip_x_cart(contracted_p_cart, param_boundaries)
                 contracted_p = create_x(contracted_p_cart, contracted_p_spher)
                 contracted_fval = func(contracted_p)
                 n_calls += 1
@@ -594,6 +625,7 @@ def spherical_opt(
             else:
                 if verbose: print('contract (inside)')
                 contracted_p_cart, contracted_p_spher = centroid(np.vstack([centroid_cart, s_cart[worst_idx]]), np.vstack([centroid_spher, s_spher[worst_idx]]))
+                clip_x_cart(contracted_p_cart, param_boundaries)
                 contracted_p = create_x(contracted_p_cart, contracted_p_spher)
                 contracted_fval = func(contracted_p)
                 n_calls += 1
@@ -610,6 +642,7 @@ def spherical_opt(
             for idx in range(n_points):
                 if not idx == best_idx:
                     s_cart[idx], s_spher[idx] = centroid(s_cart[[best_idx, idx]], s_spher[[best_idx, idx]])
+                    clip_x_cart(s_cart[idx], param_boundaries)
                     x[idx] = create_x(s_cart[idx], s_spher[idx])
                     fvals[idx] = func(x[idx])
                     n_calls += 1
