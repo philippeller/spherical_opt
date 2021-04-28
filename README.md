@@ -15,10 +15,13 @@ from spherical_opt import spherical_opt
 
 initial_points = np.zeros(4)
 
-result = spherical_opt.spherical_opt(f, method="CRS2", initial_points=initial_points, spherical_indices=((2,3),))
+result = spherical_opt.spherical_opt(f,
+                                     method="CRS2",
+                                     initial_points=initial_points,
+                                     spherical_indices=((2,3),))
 ```
 
-Available methods are "Belder-Mead" and "CRS2", for local and global optimization, respectively. More options, convergence criteria, and batch parallelization are available. This is the list of parameters the `spherical_opt` function accepts:
+Available methods are "Nelder-Mead" and "CRS2", for local and global optimization, respectively. More options, convergence criteria, and batch parallelization are available. This is the list of parameters the `spherical_opt` function accepts:
 
 ```
 Parameters:
