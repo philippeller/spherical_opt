@@ -4,7 +4,7 @@ Module providing spherically aware optimization routines
 
 ## Installation
 
-`pip install --editable .`
+`pip install spherical-opt`
 
 ## Usage
 
